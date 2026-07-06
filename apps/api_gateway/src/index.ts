@@ -2,8 +2,9 @@ import Fastify from "fastify";
 import { testConnection, db } from "./postgres_connect";
 import { initDatabase } from "./init_db";
 import fastifyRawBody from "fastify-raw-body";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { Push, PR, normalized_payload } from "../types/github.types";
+
 import dotenv from "dotenv";
 
 const fastify = Fastify({
@@ -142,6 +143,34 @@ fastify.post("/webhooks/github", { config: { rawBody: true, }, }, async (request
         };
     }
 
+    const client = await db.connect();
+
+    try {
+        const job_uuid = randomUUID();
+        const jobqueryText = `INSERT INTO jobs (id , repo_owner , repo_name , branch , commit_sha , event_type , status)
+        VALUES($1, $2, $3 , $4 , $5 , $6 , 'awaiting_source')` ;
+        const jobvalues = [job_uuid, normalizedPayload.repoOwner, normalizedPayload.repoName, normalizedPayload.branch, normalizedPayload.commitSha, normalizedPayload.eventType];
+
+        const deliveryqueryText = `INSERT INTO webhook_deliveries (delivery_id , job_id) VALUES($1 , $2)`
+        const deliveryvalues = [deliveryId, job_uuid];
+
+
+        await client.query('BEGIN');
+        await client.query(jobqueryText, jobvalues);
+        await client.query(deliveryqueryText, deliveryvalues);
+        await client.query('COMMIT');
+        console.log('Transaction successful! All data saved.');
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Transaction failed. Database rolled back.');
+        throw error;
+    }
+    finally {
+        client.release();
+    }
+
+    return reply.code(200).send("Job Persisted");
 })
 
 // start the api gateway 

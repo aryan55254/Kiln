@@ -43,6 +43,7 @@ const createTablesQuery = `
 
      CREATE TABLE IF NOT EXISTS webhook_deliveries (
         delivery_id TEXT PRIMARY KEY,
+        job_id      UUID REFERENCES jobs(id) .
         received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 `;
