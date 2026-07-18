@@ -3,6 +3,8 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+// connecting to db via sticky connection pooling 
+
 const sslCert = process.env.DB_SSL_CA
     ? process.env.DB_SSL_CA.replace(/\\n/g, "\n")
     : undefined;
