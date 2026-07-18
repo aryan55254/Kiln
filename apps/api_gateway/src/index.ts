@@ -1,3 +1,11 @@
+/*  API GATEWAY
+ WHAT IT DOES:
+ 1. Authenticate incoming GitHub webhooks.
+ 2. Reject duplicate webhook deliveries.
+ 3. Extract only the CI metadata Kiln cares about.
+ 4. Persist a new CI job atomically in PostgreSQL.
+ 5. Enqueue Source Ingestion Worker.
+*/
 import Fastify from "fastify";
 import { testConnection, db } from "./postgres_connect";
 import { initDatabase } from "./init_db";
@@ -7,6 +15,7 @@ import { Push, PR, normalized_payload } from "../types/github.types";
 
 import dotenv from "dotenv";
 
+dotenv.config();
 const fastify = Fastify({
     logger: true,
 });
@@ -19,15 +28,10 @@ fastify.get("/health", async (_, reply) => {
         .send("Hello, Kiln Is Alive");
 });
 
-/*
-1. Verify the GitHub webhook signature using SHA256.
-2. Read delivery ID and check whether the webhook has already been processed. Duplicate deliveries are ignored.
-3. Validate the GitHub event type.
-4. Parse the webhook payload and normalize repository/commit data.
-5. Persist the delivery and CI job in PostgreSQL.
-*/
+// main GH webhook endpoint Every Push/Pull Request enters Kiln through this route.
 fastify.post("/webhooks/github", { config: { rawBody: true, }, }, async (request, reply) => {
 
+    //extract signature
     const rawSignature = request.headers['x-hub-signature-256'];
 
     const githubSignature: string = Array.isArray(rawSignature)
@@ -48,7 +52,7 @@ fastify.post("/webhooks/github", { config: { rawBody: true, }, }, async (request
             .send({ error: "Missing raw body" });
     }
 
-
+    // Verify Signature
     const verifier = process.env.GITHUB_VERIFIER;
 
     if (!verifier) {
@@ -71,6 +75,7 @@ fastify.post("/webhooks/github", { config: { rawBody: true, }, }, async (request
         return reply.code(401).send({ error: 'Unauthorized' });
     }
 
+    // check if delivery if is new and unique and don't create duplicate CI
     const rawDeliveryID = request.headers["x-github-delivery"];
 
     const deliveryId = Array.isArray(rawDeliveryID)
@@ -99,6 +104,7 @@ fastify.post("/webhooks/github", { config: { rawBody: true, }, }, async (request
         });
     }
 
+    // check if events are PR or pushed , don't support anything else 
     const rawEvent = request.headers["x-github-event"];
 
     const event = Array.isArray(rawEvent)
@@ -119,6 +125,7 @@ fastify.post("/webhooks/github", { config: { rawBody: true, }, }, async (request
 
     }
 
+    //normalizing payloads
     let normalizedPayload: normalized_payload;
 
     if (event === "push") {
@@ -143,6 +150,7 @@ fastify.post("/webhooks/github", { config: { rawBody: true, }, }, async (request
         };
     }
 
+    //persist ci job
     const client = await db.connect();
 
     try {
@@ -167,6 +175,7 @@ fastify.post("/webhooks/github", { config: { rawBody: true, }, }, async (request
         throw error;
     }
     finally {
+        //releasing pg connection back to the pool always
         client.release();
     }
 

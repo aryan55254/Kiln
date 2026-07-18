@@ -4,4 +4,4 @@ A distributed, event-driven CI engine that automates code builds inside isolated
 
 # Architecture Diagram 
 
-![ARCHITECTURE](public/image.png)
+![ARCHITECTURE](public/image.png)test
